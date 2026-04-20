@@ -3,33 +3,28 @@ import requests
 
 class JamesIA:
     def __init__(self):
-        self.nome = "James"
-        # Tentativa 1: Nome padrão
-        self.api_key = os.environ.get('BLING_API_KEY')
+        self.api_key = os.getenv('BLING_API_KEY', '').strip()
+
+    def testar_duas_portas(self):
+        if not self.api_key: return "Chave não encontrada."
         
-    def investigar(self):
-        print(f"--- {self.nome}: Diagnóstico de Variáveis ---")
+        # Teste 1: Porta V2
+        url_v2 = f"https://bling.com.br/Api/v2/produtos/json/?apikey={self.api_key}"
+        res_v2 = requests.get(url_v2)
         
-        # Lista as chaves disponíveis no sistema (sem mostrar os valores por segurança)
-        chaves_encontradas = list(os.environ.keys())
-        print(f"Variáveis que eu consigo ler: {chaves_encontradas}")
+        if res_v2.status_code == 200:
+            return "✅ SUCESSO! Conectado via API V2."
         
-        if not self.api_key:
-            return "❌ Senhor, a chave BLING_API_KEY ainda não aparece no meu sistema."
+        # Teste 2: Porta V3 (Usando a chave como Bearer Token)
+        url_v3 = "https://www.bling.com.br/Api/v3/produtos"
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        res_v3 = requests.get(url_v3, headers=headers)
         
-        # Se achou, tenta conectar
-        print(f"✅ Chave encontrada! Iniciando conexão com o Bling...")
-        url = f"https://bling.com.br/Api/v2/produtos/json/?apikey={self.api_key.strip()}"
-        
-        try:
-            res = requests.get(url)
-            if res.status_code == 200:
-                return "🚀 SUCESSO: James está conectado ao Bling!"
-            else:
-                return f"⚠️ Erro no Bling: Status {res.status_code}"
-        except Exception as e:
-            return f"❌ Erro técnico: {e}"
+        if res_v3.status_code == 200:
+            return "✅ SUCESSO! Conectado via API V3."
+            
+        return f"❌ Ambas falharam. V2 deu {res_v2.status_code} e V3 deu {res_v3.status_code}."
 
 if __name__ == "__main__":
     james = JamesIA()
-    print(james.investigar())
+    print(james.testar_duas_portas())
