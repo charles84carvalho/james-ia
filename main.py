@@ -4,29 +4,33 @@ import requests
 class JamesIA:
     def __init__(self):
         self.nome = "James"
-        self.custo_fixo_mensal = 8000.00
-        self.imposto_percentual = 0.05
-        # O James busca a chave que o senhor salvou no Railway
-        self.api_key = os.getenv('BLING_API_KEY')
+        # Buscando a chave com um comando que ignora espaços extras
+        self.api_key = os.getenv('BLING_API_KEY', '').strip()
 
-    def testar_conexao_bling(self):
-        if not self.api_key:
-            return "Senhor, não encontrei a chave API nas configurações do Railway."
+    def status_do_sistema(self):
+        print(f"--- {self.nome} Relatando ---")
         
-        # Testando a conexão com a API do Bling
+        if not self.api_key:
+            return "Senhor, a variável 'BLING_API_KEY' está vazia ou não foi criada no Railway."
+        
+        # Mostra apenas os 4 primeiros dígitos da chave para segurança, confirmando que ela existe
+        print(f"Chave detectada (Início): {self.api_key[:4]}...")
+        
+        # Teste real de conexão
         url = "https://bling.com.br/Api/v2/produtos/json/"
         params = {'apikey': self.api_key}
         
         try:
-            resposta = requests.get(url, params=params)
-            if resposta.status_code == 200:
-                return "Conexão com o Bling estabelecida com sucesso! Já consigo enxergar seus dados, senhor."
+            res = requests.get(url, params=params)
+            if res.status_code == 200:
+                return "SUCESSO: Conexão total com o Bling estabelecida!"
+            elif res.status_code == 401:
+                return "ERRO: A chave API foi encontrada, mas o Bling diz que ela é inválida."
             else:
-                return f"Senhor, o Bling respondeu com um erro. Status: {resposta.status_code}"
+                return f"ERRO: O Bling respondeu com status {res.status_code}."
         except Exception as e:
-            return f"Houve um erro técnico na tentativa de conexão: {e}"
+            return f"ERRO TÉCNICO: {e}"
 
 if __name__ == "__main__":
-    mordomo = JamesIA()
-    print(f"--- Sistema {mordomo.nome} Online ---")
-    print(mordomo.testar_conexao_bling())
+    james = JamesIA()
+    print(james.status_do_sistema())
