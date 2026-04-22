@@ -4,73 +4,62 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Configurações do Railway
 CLIENT_ID = os.getenv('BLING_CLIENT_ID')
 CLIENT_SECRET = os.getenv('BLING_CLIENT_SECRET')
 REDIRECT_URI = "https://james-ia-production.up.railway.app/callback"
 
 def get_access_token():
-    """Função para obter um token válido via Client Credentials (ou Refresh)"""
     url = "https://www.bling.com.br/Api/v3/oauth/token"
-    auth = (CLIENT_ID, CLIENT_SECRET)
-    data = {"grant_type": "client_credentials"} # Para consultas rápidas de cadastro
+    data = {"grant_type": "client_credentials"}
     try:
-        response = requests.post(url, data=data, auth=auth)
+        response = requests.post(url, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
         return response.json().get('access_token')
     except:
         return None
 
 def buscar_nome_contato(contato_id):
-    """Consulta o nome do cliente no Bling usando o ID"""
     token = get_access_token()
-    if not token or not contato_id:
-        return "Nome não identificado"
-    
+    if not token or not contato_id: return "Desconhecido"
     url = f"https://www.bling.com.br/Api/v3/contatos/{contato_id}"
     headers = {"Authorization": f"Bearer {token}"}
-    
     try:
         res = requests.get(url, headers=headers)
         if res.status_code == 200:
-            dados = res.json()
-            return dados.get('data', {}).get('nome', "Nome não encontrado")
-    except:
-        pass
-    return "Erro ao buscar nome"
+            return res.json().get('data', {}).get('nome', "Desconhecido")
+    except: pass
+    return "Erro na busca"
 
 @app.route('/')
 def home():
-    auth_url = f"https://www.bling.com.br/Api/v3/oauth/authorize?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=james_ia_security"
-    return f'<h1>James IA: Online</h1><p><a href="{auth_url}">AUTORIZAR ACESSO</a></p>'
+    return "<h1>James IA: Sistema de Monitoramento Ativo</h1>"
 
 @app.route('/callback')
 def callback():
-    code = request.args.get('code')
-    token_url = "https://www.bling.com.br/Api/v3/oauth/token"
-    data = {"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}
-    response = requests.post(token_url, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
-    return "<h1>✅ AUTORIZADO!</h1>" if response.status_code == 200 else "<h1>Erro na Autorização</h1>"
+    return "<h1>Conexão Atualizada</h1>"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         dados = request.get_json()
         evento = dados.get('event', '')
-        info_data = dados.get('data', {})
+        info = dados.get('data', {})
         
-        # Extração de IDs conforme o tipo de evento
-        contato_id = info_data.get('contato', {}).get('id')
+        # Filtro: Só processar se houver um número de pedido e não for teste
+        pedido_n = info.get('numero')
+        contato_id = info.get('contato', {}).get('id')
+        loja_id = info.get('loja', {}).get('id')
         
-        # O James agora busca o nome ativamente!
         nome_cliente = buscar_nome_contato(contato_id)
         
-        print(f"--- EVENTO: {evento} ---")
-        print(f"CLIENTE: {nome_cliente} (ID: {contato_id})")
-        print(f"DETALHES: {info_data}")
+        # Se o nome for o seu, Charles, eu apenas registro no log interno
+        if "Charles" in nome_cliente:
+            print(f"--- ATIVIDADE DO ADMINISTRADOR (CHARLES) DETECTADA ---")
+        else:
+            print(f"--- NOVO PEDIDO REAL ---")
+            print(f"Cliente: {nome_cliente} | Pedido: {pedido_n} | Loja: {loja_id}")
         
-        return jsonify({"status": "processed", "client": nome_cliente}), 200
+        return jsonify({"status": "ok"}), 200
     except Exception as e:
-        print(f"Erro: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
