@@ -6,60 +6,55 @@ app = Flask(__name__)
 
 CLIENT_ID = os.getenv('BLING_CLIENT_ID')
 CLIENT_SECRET = os.getenv('BLING_CLIENT_SECRET')
-REDIRECT_URI = "https://james-ia-production.up.railway.app/callback"
 
 def get_access_token():
+    """Tenta obter o token. Se falhar, retorna None"""
     url = "https://www.bling.com.br/Api/v3/oauth/token"
-    data = {"grant_type": "client_credentials"}
     try:
-        response = requests.post(url, data=data, auth=(CLIENT_ID, CLIENT_SECRET))
+        # Usando Client Credentials para acesso rápido a dados de contatos
+        response = requests.post(url, data={"grant_type": "client_credentials"}, auth=(CLIENT_ID, CLIENT_SECRET), timeout=5)
         return response.json().get('access_token')
     except:
         return None
 
 def buscar_nome_contato(contato_id):
+    if not contato_id: return "ID não informado"
     token = get_access_token()
-    if not token or not contato_id: return "Desconhecido"
+    if not token: return f"Sem Token (ID: {contato_id})"
+    
     url = f"https://www.bling.com.br/Api/v3/contatos/{contato_id}"
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
-            return res.json().get('data', {}).get('nome', "Desconhecido")
-    except: pass
-    return "Erro na busca"
+            return res.json().get('data', {}).get('nome', "Nome não encontrado")
+    except:
+        pass
+    return f"Erro API (ID: {contato_id})"
 
 @app.route('/')
 def home():
-    return "<h1>James IA: Sistema de Monitoramento Ativo</h1>"
-
-@app.route('/callback')
-def callback():
-    return "<h1>Conexão Atualizada</h1>"
+    return "James Online - Vigilante"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         dados = request.get_json()
-        evento = dados.get('event', '')
+        if not dados: return jsonify({"error": "No data"}), 400
+        
         info = dados.get('data', {})
-        
-        # Filtro: Só processar se houver um número de pedido e não for teste
-        pedido_n = info.get('numero')
+        pedido_n = info.get('numero', 'S/N')
         contato_id = info.get('contato', {}).get('id')
-        loja_id = info.get('loja', {}).get('id')
         
+        # Tentamos buscar o nome, mas se falhar, o código continua
         nome_cliente = buscar_nome_contato(contato_id)
         
-        # Se o nome for o seu, Charles, eu apenas registro no log interno
-        if "Charles" in nome_cliente:
-            print(f"--- ATIVIDADE DO ADMINISTRADOR (CHARLES) DETECTADA ---")
-        else:
-            print(f"--- NOVO PEDIDO REAL ---")
-            print(f"Cliente: {nome_cliente} | Pedido: {pedido_n} | Loja: {loja_id}")
+        print(f"--- EVENTO RECEBIDO ---")
+        print(f"PEDIDO: {pedido_n} | CLIENTE: {nome_cliente}")
         
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "received"}), 200
     except Exception as e:
+        print(f"ERRO NO WEBHOOK: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
