@@ -11,7 +11,6 @@ REDIRECT_URI = "https://james-ia-production.up.railway.app/callback"
 
 @app.route('/')
 def home():
-    # Parâmetro 'state' para segurança do Bling
     auth_url = (
         f"https://www.bling.com.br/Api/v3/oauth/authorize?"
         f"response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state=james_ia_security"
@@ -29,12 +28,11 @@ def callback():
     error = request.args.get('error')
     
     if error:
-        return f"Erro reportado pelo Bling: {error}. Senhor, verifique as credenciais.", 400
+        return f"Erro reportado pelo Bling: {error}", 400
 
     if not code:
         return "Erro: Código de autorização não recebido.", 400
 
-    # Troca o código pelo Token de Acesso
     token_url = "https://www.bling.com.br/Api/v3/oauth/token"
     auth = (CLIENT_ID, CLIENT_SECRET)
     
@@ -49,25 +47,22 @@ def callback():
     if response.status_code == 200:
         return (
             "<h1>✅ SUCESSO, SENHOR!</h1>"
-            "<p>O James agora está oficialmente conectado à sua conta do Bling.</p>"
-            "<p>Pode retornar à nossa conversa para darmos início à análise dos seus pedidos.</p>"
+            "<p>O James agora está conectado. Pode fechar esta aba.</p>"
         )
     else:
-        return (
-            f"<h1>Erro na autorização Final</h1>"
-            f"<p>Status: {response.status_code}</p>"
-            f"<p>Detalhe: {response.text}</p>"
-        )
+        return f"<h1>Erro na autorização</h1><p>{response.text}</p>"
 
-# --- ROTA DO WEBHOOK: ONDE O ACESSO REAL ACONTECE ---
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        # Recebe os dados JSON enviados pelo Bling (vendas, notas, etc)
         dados = request.get_json()
-        
-        # Este print aparecerá nos logs do Railway para confirmarmos a chegada
         print(f"--- WEBHOOK RECEBIDO: {dados} ---")
-        
-        # Retornamos 200 para o Bling saber que a mensagem foi entregue
-        return jsonify({"status": "received
+        # Linha corrigida abaixo:
+        return jsonify({"status": "received"}), 200
+    except Exception as e:
+        print(f"Erro no processamento: {e}")
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
