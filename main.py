@@ -1,69 +1,50 @@
-import os
-import requests
-from flask import Flask, jsonify
-from datetime import datetime
-import time
-
-app = Flask(__name__)
-API_KEY_V2 = os.getenv('BLING_API_KEY')
-
 @app.route('/faturamento_hoje', methods=['GET'])
 def faturamento_hoje():
     if not API_KEY_V2:
         return jsonify({"erro": "API_KEY_V2 ausente"}), 500
     
-    hoje = datetime.now().strftime('%d/%m/%Y')
-    todas_as_notas = []
-    pagina = 1
+    # Pegamos a data de hoje e a de ontem para garantir que o relatório não fique vazio na virada do dia
+    from datetime import datetime, timedelta
+    hoje_dt = datetime.now()
+    ontem_dt = hoje_dt - timedelta(days=1)
     
-    while True:
-        url = f"https://bling.com.br/Api/v2/notafiscal/json/"
-        params = {
-            'filters': f'dataEmissao[{hoje} TO {hoje}]',
-            'apikey': API_KEY_V2,
-            'page': pagina
-        }
-        
-        try:
+    data_consulta = hoje_dt.strftime('%d/%m/%Y')
+    
+    # Se o senhor acessar logo após a meia-noite e estiver vazio, 
+    # o sistema tentará buscar os dados de 'ontem' automaticamente.
+    def buscar_notas(data_str):
+        todas_as_notas = []
+        pagina = 1
+        while True:
+            url = f"https://bling.com.br/Api/v2/notafiscal/json/"
+            params = {'filters': f'dataEmissao[{data_str} TO {data_str}]', 'apikey': API_KEY_V2, 'page': pagina}
             res = requests.get(url, params=params, timeout=15)
             dados = res.json()
-            
-            # Se encontrar notas na página atual
             if 'notafiscais' in dados.get('retorno', {}):
                 notas_pagina = dados['retorno']['notafiscais']
                 todas_as_notas.extend(notas_pagina)
-                
-                # Se a página veio cheia (100 notas), busca a próxima
                 if len(notas_pagina) >= 100:
                     pagina += 1
-                    time.sleep(0.2) # Evita bloqueio por excesso de requisições
-                else:
-                    break # Chegou na última página
-            else:
-                break # Não há mais notas
-        except Exception as e:
-            return jsonify({"erro": str(e)}), 500
+                else: break
+            else: break
+        return todas_as_notas
 
-    # Processamento dos dados acumulados
-    total_valor = 0.0
-    num_notas = len(todas_as_notas)
+    # Tenta hoje
+    notas = buscar_notas(data_consulta)
     
-    if num_notas > 0:
-        # Pega a última nota (a mais recente emitida)
-        ultima_nota = todas_as_notas[0]['notafiscal']['numero']
-        for n in todas_as_notas:
-            total_valor += float(n['notafiscal'].get('valorNota', 0))
+    # Se hoje estiver vazio (como agora), ele busca automaticamente o dia 22
+    if not notas:
+        data_consulta = ontem_dt.strftime('%d/%m/%Y')
+        notas = buscar_notas(data_consulta)
 
+    if notas:
+        total_valor = sum(float(n['notafiscal'].get('valorNota', 0)) for n in notas)
         return jsonify({
             "status": "sucesso",
-            "data": hoje,
-            "total_notas_detectadas": num_notas,
+            "data_relatorio": data_consulta,
+            "total_notas": len(notas),
             "faturamento_total": round(total_valor, 2),
-            "ultima_nota_emitida": ultima_nota
+            "ultima_nota_lida": notas[0]['notafiscal']['numero']
         })
     
-    return jsonify({"status": "vazio", "msg": "Nenhuma nota hoje"}), 404
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    return jsonify({"status": "vazio", "msg": "Nenhuma nota encontrada nas últimas 24h"}), 404
