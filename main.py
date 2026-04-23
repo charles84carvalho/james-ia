@@ -1,13 +1,11 @@
 import os
-import requests
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 app = Flask(__name__)
 
-# O Railway injeta a DATABASE_URL automaticamente. 
-# O código abaixo garante que ela seja lida corretamente (ajustando o prefixo se necessário)
+# Conexão com o Banco de Dados do Railway
 uri = os.getenv("DATABASE_URL")
 if uri and uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
@@ -17,49 +15,42 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# MODELO DE DADOS: É aqui que o James 'aprende' a guardar suas vendas
+# Tabela onde as vendas serão guardadas
 class Venda(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    numero_nf = db.Column(db.String(20), unique=True, nullable=False)
-    valor = db.Column(db.Float, nullable=False)
-    data_emissao = db.Column(db.DateTime, default=datetime.utcnow)
+    numero_nf = db.Column(db.String(50), unique=True)
+    valor = db.Column(db.Float)
     cliente = db.Column(db.String(100))
-    status = db.Column(db.String(50))
+    data_emissao = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Cria a estrutura do banco de dados na primeira execução
+# Cria as tabelas se não existirem
 with app.app_context():
     db.create_all()
 
 @app.route('/')
-def index():
+def home():
     return "James Pro SaaS - Sistema de Monitoramento Ativo"
 
-# WEBHOOK: O 'ouvido' do James. O Bling vai enviar os dados para cá.
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # O Bling envia os dados via formulário (form-data) na V2
-    data = request.form.get('data')
-    if not data:
-        return jsonify({"status": "erro", "message": "Sem dados"}), 400
-    
-    # Aqui o James processa a informação recebida e salva no Banco de Dados
-    # (Lógica interna de processamento de JSON)
-    return jsonify({"status": "sucesso"}), 200
+    # O Bling envia dados aqui. Por enquanto, vamos apenas confirmar o recebimento
+    # para testar a conexão do Webhook.
+    return jsonify({"status": "recebido"}), 200
 
-# CONSULTA: Agora o James responde instantaneamente lendo o Banco
-@app.route('/faturamento_hoje', methods=['GET'])
-def faturamento_hoje():
-    hoje = datetime.utcnow().date()
-    # Busca todas as vendas do dia de hoje no Banco de Dados
-    vendas_hoje = Venda.query.filter(db.func.date(Venda.data_emissao) == hoje).all()
+@app.route('/auditoria')
+def auditoria():
+    # Esta é a página que deu "Not Found". Agora ela vai existir!
+    total = Venda.query.count()
+    ultimas = Venda.query.order_by(Venda.id.desc()).limit(10).all()
     
-    total = sum(v.valor for v in vendas_hoje)
-    
+    vendas_list = []
+    for v in ultimas:
+        vendas_list.append({"nf": v.numero_nf, "valor": v.valor, "cliente": v.cliente})
+        
     return jsonify({
-        "status": "sucesso",
-        "total_notas": len(vendas_hoje),
-        "faturamento_total": round(total, 2),
-        "data": hoje.strftime('%d/%m/%Y')
+        "mensagem": "Caminho encontrado com sucesso!",
+        "total_no_banco": total,
+        "ultimas_10": vendas_list
     })
 
 if __name__ == "__main__":
