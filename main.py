@@ -27,7 +27,7 @@ with app.app_context():
 
 @app.route('/')
 def home():
-    return "James Pro SaaS - Filtro Inteligente Ativado"
+    return "James Pro SaaS - Inteligência Comercial Ativa"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -35,19 +35,23 @@ def webhook():
         dados = request.get_json(silent=True) or {}
         info = dados.get('data', {})
         
-        # Extração
-        cliente_nome = info.get('contato', {}).get('nome') or info.get('cliente', {}).get('nome') or ""
+        # Busca profunda pelo nome (evita o "Cliente" genérico)
+        contato = info.get('contato', {})
+        cliente_nome = contato.get('nome') or info.get('cliente', {}).get('nome') or ""
+        
         valor_venda = float(info.get('total') or info.get('totalVenda') or info.get('valor') or 0.0)
         
-        # FILTRO RÍGIDO: Ignora R$ 0, asteriscos ou se o nome for apenas "Cliente"
-        if valor_venda <= 0.1 or "*" in cliente_nome or cliente_nome.strip() in ["", "Cliente", "Cliente Pedido"]:
-            return jsonify({"status": "ignorado", "motivo": "ruido"}), 200
+        # Filtro: Só registra se tiver valor e se não for nome genérico demais
+        if valor_venda <= 0.5 or cliente_nome.strip() in ["", "Cliente"]:
+            return jsonify({"status": "ignorado"}), 200
 
-        tipo = "Nota Fiscal" if 'notafiscal' in json.dumps(dados).lower() else "Pedido em Aberto"
+        # Identifica o tipo
+        tipo_bruto = json.dumps(dados).lower()
+        tipo_final = "Nota Fiscal" if 'notafiscal' in tipo_bruto else "Pedido"
         
         novo = Registro(
-            tipo=tipo,
-            numero=str(info.get('numero', info.get('numeroPedido', '-'))),
+            tipo=tipo_final,
+            numero=str(info.get('numero', '-')),
             valor=valor_venda,
             cliente=str(cliente_nome)
         )
@@ -55,15 +59,15 @@ def webhook():
         db.session.commit()
         return jsonify({"status": "sucesso"}), 200
     except Exception as e:
-        return jsonify({"status": "erro", "detalhe": str(e)}), 500
+        return jsonify({"status": "erro"}), 500
 
 @app.route('/auditoria')
 def auditoria():
-    # Buscamos apenas o que tem valor e nome real
+    # Filtra apenas o que é relevante
     registros = Registro.query.filter(Registro.valor > 0).order_by(Registro.id.desc()).limit(50).all()
     
     lista = []
-    soma_aberto = 0.0
+    total_pedidos = 0.0
     
     for r in registros:
         lista.append({
@@ -73,13 +77,14 @@ def auditoria():
             "pedido": r.numero,
             "hora": r.data_registro.strftime('%H:%M')
         })
-        if r.tipo == "Pedido em Aberto":
-            soma_aberto += r.valor
+        # Soma todos os pedidos para o senhor ver o volume
+        if r.tipo == "Pedido":
+            total_pedidos += r.valor
             
     return jsonify({
-        "status_geral": "Lista de Vendas Reais e Limpas",
-        "faturamento_pendente_estimado": f"R$ {soma_aberto:,.2f}",
-        "pedidos": lista
+        "mensagem": "Senhor, relatório de faturamento atualizado.",
+        "faturamento_em_pedidos_recente": f"R$ {total_pedidos:,.2f}",
+        "lista": lista
     })
 
 if __name__ == "__main__":
