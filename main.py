@@ -1,11 +1,12 @@
 import os
+import json
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 app = Flask(__name__)
 
-# 1. Configuração da conexão com o Banco de Dados
+# 1. Configuração do Banco de Dados
 uri = os.getenv("DATABASE_URL")
 if uri and uri.startswith("postgres://"):
     uri = uri.replace("postgres://", "postgresql://", 1)
@@ -14,54 +15,105 @@ app.config['SQLALCHEMY_DATABASE_URI'] = uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# 2. Definição da Tabela (Modelo Simples e Flexível)
-class Venda(db.Model):
+# 2. Modelo de Dados Evoluído
+class Registro(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    info = db.Column(db.Text)  # Campo flexível para guardar os dados do Bling
-    data = db.Column(db.DateTime, default=datetime.utcnow)
+    tipo = db.Column(db.String(50))  # 'Pedido' ou 'Nota Fiscal'
+    numero = db.Column(db.String(50))
+    valor = db.Column(db.Float, default=0.0)
+    cliente = db.Column(db.String(200))
+    status = db.Column(db.String(100))
+    data_registro = db.Column(db.DateTime, default=datetime.utcnow)
+    conteudo_bruto = db.Column(db.Text)
 
-# 3. Comando de Inicialização e Reset
+# 3. Inicialização (Mantendo o Reset para aplicar a nova estrutura)
 with app.app_context():
-    # ATENÇÃO: As duas linhas abaixo limpam e recriam a tabela para corrigir erros de coluna
-    db.drop_all() 
+    db.drop_all()
     db.create_all()
 
-# 4. Rota Inicial
 @app.route('/')
 def home():
-    return "James Pro SaaS - Sistema Online e Operacional"
+    return "James Pro SaaS - Inteligência de Vendas Ativa"
 
-# 5. O "Ouvido" do James (Webhook do Bling)
+# 4. O Ouvido Inteligente (Webhook)
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
-        # Captura os dados brutos enviados pelo Bling
-        dados_brutos = request.get_data(as_text=True)
-        
-        # Salva no banco de dados para auditoria
-        nova_venda = Venda(info=dados_brutos)
-        db.session.add(nova_venda)
+        dados = request.get_json(silent=True)
+        if not dados:
+            return jsonify({"status": "vazio"}), 200
+
+        tipo = "Desconhecido"
+        numero = "-"
+        valor = 0.0
+        cliente = "Não Identificado"
+        status = "-"
+
+        # Lógica para identificar se é Nota Fiscal (v3)
+        if 'notafiscal' in str(dados).lower():
+            tipo = "Nota Fiscal"
+            # Tentativa de extrair dados da estrutura Bling v3
+            nf_data = dados.get('data', {})
+            numero = nf_data.get('numero', '-')
+            valor = float(nf_data.get('valor', 0.0))
+            cliente = nf_data.get('contato', {}).get('nome', 'Cliente NF')
+            status = "Autorizada" if 'situacao' not in nf_data else nf_data.get('situacao')
+
+        # Lógica para identificar se é Pedido/Venda
+        elif 'venda' in str(dados).lower() or 'pedido' in str(dados).lower():
+            tipo = "Pedido"
+            venda_data = dados.get('data', {})
+            numero = venda_data.get('numero', '-')
+            valor = float(venda_data.get('totalVenda', 0.0) or venda_data.get('total', 0.0))
+            cliente = venda_data.get('contato', {}).get('nome', 'Cliente Pedido')
+            status = "Em Aberto"
+
+        # Salva o registro processado
+        novo = Registro(
+            tipo=tipo,
+            numero=str(numero),
+            valor=valor,
+            cliente=cliente,
+            status=str(status),
+            conteudo_bruto=json.dumps(dados)
+        )
+        db.session.add(novo)
         db.session.commit()
         
-        return jsonify({"status": "sucesso", "mensagem": "Dados guardados pelo James"}), 200
+        return jsonify({"status": "sucesso"}), 200
     except Exception as e:
         return jsonify({"status": "erro", "detalhe": str(e)}), 500
 
-# 6. Rota de Auditoria (Para o senhor testar)
+# 5. Auditoria Organizada
 @app.route('/auditoria')
 def auditoria():
     try:
-        total = Venda.query.count()
-        ultimas = Venda.query.order_by(Venda.id.desc()).limit(5).all()
+        total_geral = Registro.query.count()
+        registros = Registro.query.order_by(Registro.id.desc()).limit(20).all()
         
-        logs = []
-        for v in ultimas:
-            logs.append({"id": v.id, "data": v.data.strftime('%d/%m %H:%M'), "conteudo": v.info[:100]})
-            
+        lista = []
+        faturamento_pedidos = 0.0
+        faturamento_notas = 0.0
+
+        for r in registros:
+            lista.append({
+                "id": r.id,
+                "tipo": r.tipo,
+                "numero": r.numero,
+                "cliente": r.cliente,
+                "valor": f"R$ {r.valor:,.2f}",
+                "data": r.data_registro.strftime('%H:%M')
+            })
+            if r.tipo == "Pedido": faturamento_pedidos += r.valor
+            if r.tipo == "Nota Fiscal": faturamento_notas += r.valor
+
         return jsonify({
-            "status": "James está ouvindo",
-            "total_no_banco": total,
-            "ultimos_recebidos": logs
+            "total_registros": total_geral,
+            "resumo_recente": {
+                "em_pedidos": f"R$ {faturamento_pedidos:,.2f}",
+                "em_notas": f"R$ {faturamento_notas:,.2f}"
+            },
+            "ultimas_operacoes": lista
         })
     except Exception as e:
         return jsonify({"erro": str(e)})
