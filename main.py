@@ -20,47 +20,36 @@ class Registro(db.Model):
     numero = db.Column(db.String(50))
     valor = db.Column(db.Float, default=0.0)
     cliente = db.Column(db.String(200))
-    status = db.Column(db.String(100))
     data_registro = db.Column(db.DateTime, default=datetime.utcnow)
     conteudo_bruto = db.Column(db.Text)
 
 with app.app_context():
-    # Removido o drop_all para preservar seus dados daqui em diante
-    db.create_all()
+    db.create_all() # Sem drop_all agora: seus dados estão protegidos
 
 @app.route('/')
 def home():
-    return "James Pro SaaS - Inteligência Ativa"
+    return "James Pro SaaS - Monitoramento Real-Time"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
         dados = request.get_json(silent=True) or {}
-        
-        # O Bling v3 costuma enviar os dados dentro de 'data'
         info = dados.get('data', {})
         
-        # Identifica se é Nota ou Pedido pelo conteúdo
-        corpo_str = json.dumps(dados).lower()
+        # Busca profunda pelo nome do cliente
+        cliente = info.get('contato', {}).get('nome') or info.get('cliente', {}).get('nome') or "Cliente"
         
-        if 'notafiscal' in corpo_str:
-            tipo = "Nota Fiscal"
-            numero = info.get('numero', '-')
-            valor = float(info.get('valor', 0.0))
-            cliente = info.get('contato', {}).get('nome', 'Cliente NF')
-        else:
-            tipo = "Pedido"
-            numero = info.get('numero', '-')
-            # No Bling v3 de vendas, o valor pode estar em 'total'
-            valor = float(info.get('total', 0.0) or info.get('totalVenda', 0.0))
-            cliente = info.get('contato', {}).get('nome', 'Cliente Pedido')
-
+        # Busca profunda pelo valor (tenta vários campos possíveis do Bling v3)
+        valor_bruto = info.get('total') or info.get('totalVenda') or info.get('valor') or 0.0
+        
+        # Identificação do Tipo
+        tipo = "Nota Fiscal" if 'notafiscal' in json.dumps(dados).lower() else "Pedido"
+        
         novo = Registro(
             tipo=tipo,
-            numero=str(numero),
-            valor=valor,
-            cliente=cliente,
-            status="Processado",
+            numero=str(info.get('numero', info.get('numeroPedido', '-'))),
+            valor=float(valor_bruto),
+            cliente=str(cliente),
             conteudo_bruto=json.dumps(dados)
         )
         db.session.add(novo)
@@ -72,25 +61,18 @@ def webhook():
 
 @app.route('/auditoria')
 def auditoria():
-    try:
-        registros = Registro.query.order_by(Registro.id.desc()).limit(20).all()
-        lista = []
-        for r in registros:
-            lista.append({
-                "id": r.id,
-                "tipo": r.tipo,
-                "numero": r.numero,
-                "cliente": r.cliente,
-                "valor": f"R$ {r.valor:,.2f}",
-                "data": r.data_registro.strftime('%H:%M')
-            })
-            
-        return jsonify({
-            "total_acumulado": Registro.query.count(),
-            "ultimas_operacoes": lista
+    registros = Registro.query.order_by(Registro.id.desc()).limit(20).all()
+    lista = []
+    for r in registros:
+        lista.append({
+            "id": r.id,
+            "tipo": r.tipo,
+            "numero": r.numero,
+            "cliente": r.cliente,
+            "valor": f"R$ {r.valor:,.2f}",
+            "hora": r.data_registro.strftime('%H:%M')
         })
-    except Exception as e:
-        return jsonify({"erro": str(e)})
+    return jsonify({"registros_totais": Registro.query.count(), "ultimas_vendas": lista})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
