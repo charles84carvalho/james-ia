@@ -27,7 +27,7 @@ with app.app_context():
 
 @app.route('/')
 def home():
-    return "James Pro SaaS - Monitoramento de Pedidos Reais"
+    return "James Pro SaaS - Filtro Inteligente Ativado"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -35,14 +35,13 @@ def webhook():
         dados = request.get_json(silent=True) or {}
         info = dados.get('data', {})
         
-        # 1. Extração de Identidade e Valor
+        # Extração
         cliente_nome = info.get('contato', {}).get('nome') or info.get('cliente', {}).get('nome') or ""
         valor_venda = float(info.get('total') or info.get('totalVenda') or info.get('valor') or 0.0)
         
-        # 2. O FILTRO DE RUÍDO (A inteligência do James)
-        # Ignora se o valor for zero ou se o nome contiver asteriscos ou for genérico
-        if valor_venda <= 0 or "*" in cliente_nome or not cliente_nome or "Cliente" in cliente_nome:
-            return jsonify({"status": "ignorado", "motivo": "ruido ou sem dados reais"}), 200
+        # FILTRO RÍGIDO: Ignora R$ 0, asteriscos ou se o nome for apenas "Cliente"
+        if valor_venda <= 0.1 or "*" in cliente_nome or cliente_nome.strip() in ["", "Cliente", "Cliente Pedido"]:
+            return jsonify({"status": "ignorado", "motivo": "ruido"}), 200
 
         tipo = "Nota Fiscal" if 'notafiscal' in json.dumps(dados).lower() else "Pedido em Aberto"
         
@@ -54,34 +53,33 @@ def webhook():
         )
         db.session.add(novo)
         db.session.commit()
-        
-        return jsonify({"status": "sucesso", "tipo": tipo}), 200
+        return jsonify({"status": "sucesso"}), 200
     except Exception as e:
         return jsonify({"status": "erro", "detalhe": str(e)}), 500
 
 @app.route('/auditoria')
 def auditoria():
-    # Mostra apenas os últimos 50 pedidos reais e limpos
-    registros = Registro.query.order_by(Registro.id.desc()).limit(50).all()
+    # Buscamos apenas o que tem valor e nome real
+    registros = Registro.query.filter(Registro.valor > 0).order_by(Registro.id.desc()).limit(50).all()
+    
     lista = []
-    total_em_aberto = 0.0
+    soma_aberto = 0.0
     
     for r in registros:
         lista.append({
-            "id": r.id,
-            "tipo": r.tipo,
-            "pedido": r.numero,
             "cliente": r.cliente,
             "valor": f"R$ {r.valor:,.2f}",
+            "tipo": r.tipo,
+            "pedido": r.numero,
             "hora": r.data_registro.strftime('%H:%M')
         })
         if r.tipo == "Pedido em Aberto":
-            total_em_aberto += r.valor
+            soma_aberto += r.valor
             
     return jsonify({
-        "mensage": "Senhor, aqui estão seus pedidos limpos e reais.",
-        "faturamento_pendente_recente": f"R$ {total_em_aberto:,.2f}",
-        "lista_de_vendas": lista
+        "status_geral": "Lista de Vendas Reais e Limpas",
+        "faturamento_pendente_estimado": f"R$ {soma_aberto:,.2f}",
+        "pedidos": lista
     })
 
 if __name__ == "__main__":
